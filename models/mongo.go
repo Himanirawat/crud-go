@@ -4,19 +4,20 @@ import (
 	"context"
 	"crud-go/utils"
 	"fmt"
-
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/bcrypt"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type user struct {
-	Id       uint   `json:"id"`
+	Id       primitive.ObjectID   `json:"id"`
 	Username string `json:"username"`
 	Password string `json:"password"`
 	City     string `json:"city"`
 	Name     string `json:"name"`
+	Email    string  `json:"email"`
 }
 
 func ConnectionMongo() *mongo.Client {
@@ -27,12 +28,22 @@ func ConnectionMongo() *mongo.Client {
 	return client
 }
 
-func SaveUser(user utils.RegisterType, client *mongo.Client) {
+func SaveUser(user utils.RegisterType, client *mongo.Client) bool{
+	u :=User{}
 	usersCollection := client.Database(utils.Db).Collection("users")
-	_, err := usersCollection.InsertOne(context.TODO(), &user)
+	fmt.Print(user)
+	if err := usersCollection.FindOne(context.TODO(), bson.M{"email": user.Email}).Decode(&u); err != nil {
+		_, err := usersCollection.InsertOne(context.TODO(), &user)
 	if err != nil {
 		panic(err)
 	}
+	}
+
+	if u.Name != ""{
+		return true
+	}
+	return false
+	
 
 }
 
@@ -40,7 +51,7 @@ func LoginCheckMongo(client *mongo.Client, input utils.RegisterType) string {
 
 	usersCollection := client.Database(utils.Db).Collection("users")
 	u := user{}
-	if err := usersCollection.FindOne(context.TODO(), bson.M{"username": input.Username}).Decode(&u); err != nil {
+	if err := usersCollection.FindOne(context.TODO(), bson.M{"email": input.Email}).Decode(&u); err != nil {
 		return "error"
 	}
 
@@ -49,30 +60,32 @@ func LoginCheckMongo(client *mongo.Client, input utils.RegisterType) string {
 		return "error"
 	}
 
-	token, _ := utils.GenerateToken(u.Id)
+	token, _ := utils.CreateJWT(u.Email)
 	return token
 
 }
 
-func GetUserMongo(username string) user {
+func GetUserMongo(id string) user {
 	u := user{}
+	fmt.Print("mongo")
 	client := ConnectionMongo()
-
+	objId, _ := primitive.ObjectIDFromHex(id)
 	usersCollection := client.Database(utils.Db).Collection("users")
-	if err := usersCollection.FindOne(context.TODO(), bson.M{"username": username}).Decode(&u); err != nil {
+	if err := usersCollection.FindOne(context.TODO(), bson.M{"_id": objId}).Decode(&u); err != nil {
 		panic("error in getting")
 	}
 
 	return u
 }
 
-func UpdateMongo(name string, input utils.RegisterType) {
+func UpdateMongo(id string, input utils.RegisterType) {
 
+	objId, _ := primitive.ObjectIDFromHex(id)
 	filter := bson.D{
 		{Key: "$and",
 			Value: bson.A{
 				bson.D{
-					{Key: "name", Value: input.Name}},
+					{Key: "_id", Value: objId}},
 			},
 		},
 	}
@@ -82,6 +95,7 @@ func UpdateMongo(name string, input utils.RegisterType) {
 			Value: bson.D{
 				{Key: "city", Value: input.City},
 				{Key: "username", Value: input.Username},
+				{Key: "name", Value: input.Name},
 			},
 		},
 	}
@@ -97,13 +111,15 @@ func UpdateMongo(name string, input utils.RegisterType) {
 
 }
 
-func DeleteMongo(name string) {
+func DeleteMongo(id string) {
 	client := ConnectionMongo()
+	objId, _ := primitive.ObjectIDFromHex(id)
+
 	filter := bson.D{
 		{Key: "$and",
 			Value: bson.A{
 				bson.D{
-					{Key: "name", Value: name}},
+					{Key: "_id", Value: objId}},
 			},
 		},
 	}
